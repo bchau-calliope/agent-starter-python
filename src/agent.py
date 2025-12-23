@@ -14,11 +14,12 @@ from livekit.agents import (
 )
 from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
+from livekit.plugins import deepgram
+from livekit.plugins import openai
 
 logger = logging.getLogger("agent")
 
-load_dotenv(".env.local")
-
+load_dotenv(".env")
 
 class Assistant(Agent):
     def __init__(self) -> None:
@@ -27,7 +28,33 @@ class Assistant(Agent):
             You eagerly assist users with their questions by providing information from your extensive knowledge.
             Your responses are concise, to the point, and without any complex formatting or punctuation including emojis, asterisks, or other symbols.
             You are curious, friendly, and have a sense of humor.""",
+            llm="openai/gpt-4.1"
         )
+
+    async def llm_node(self, chat_ctx, tools, model_settings=None):
+        async def process_stream():
+            async with self.llm.chat(chat_ctx=chat_ctx, tools=tools, tool_choice=None) as stream:
+                async for chunk in stream:
+                    if chunk is None:
+                        continue
+
+                    content = getattr(chunk.delta, 'content', None) if hasattr(chunk, 'delta') else str(chunk)
+                    if content is None:
+                        yield chunk
+                        continue
+
+                    processed_content = content.replace("<think>", "").replace("</think>", "Okay, I'm ready to respond.")
+                    print(f"Original: {content}, Processed: {processed_content}")
+
+                    if processed_content != content:
+                        if hasattr(chunk, 'delta') and hasattr(chunk.delta, 'content'):
+                            chunk.delta.content = processed_content
+                        else:
+                            chunk = processed_content
+
+                    yield chunk
+
+        return process_stream()
 
     # To add tools, use the @function_tool decorator.
     # Here's an example that adds a simple weather tool.
@@ -57,6 +84,8 @@ def prewarm(proc: JobProcess):
 server.setup_fnc = prewarm
 
 
+from livekit.agents import UserInputTranscribedEvent
+
 @server.rtc_session()
 async def my_agent(ctx: JobContext):
     # Logging setup
@@ -69,7 +98,7 @@ async def my_agent(ctx: JobContext):
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt=inference.STT(model="assemblyai/universal-streaming", language="en"),
+        stt=deepgram.STT(model="nova-3", language="multi", profanity_filter="true", enable_diarization=True),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
         llm=inference.LLM(model="openai/gpt-4.1-mini"),
@@ -86,6 +115,13 @@ async def my_agent(ctx: JobContext):
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
         preemptive_generation=True,
     )
+
+    @session.on("user_input_transcribed")
+    def on_user_input_transcribed(event: UserInputTranscribedEvent):
+        logger.info(f"User input transcribed: {event.transcript}, "
+            f"language: {event.language}, "
+            f"final: {event.is_final}, "
+            f"speaker id: {event.speaker_id}")
 
     # To use a realtime model instead of a voice pipeline, use the following session setup instead.
     # (Note: This is for the OpenAI Realtime API. For other providers, see https://docs.livekit.io/agents/models/realtime/))
@@ -111,7 +147,7 @@ async def my_agent(ctx: JobContext):
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
-                noise_cancellation=lambda params: noise_cancellation.BVCTelephony()
+                noise_cancellation=lambda params: noise_cancellation.BVC()
                 if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
                 else noise_cancellation.BVC(),
             ),
