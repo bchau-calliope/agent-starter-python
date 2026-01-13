@@ -16,6 +16,7 @@ from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from livekit.plugins import deepgram
 from livekit.plugins import openai
+from livekit.plugins import soniox
 
 logger = logging.getLogger("agent")
 
@@ -94,11 +95,16 @@ async def my_agent(ctx: JobContext):
         "room": ctx.room.name,
     }
 
+    options = soniox.STTOptions(
+        enable_speaker_diarization=True,
+    )
+
     # Set up a voice AI pipeline using OpenAI, Cartesia, AssemblyAI, and the LiveKit turn detector
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt=deepgram.STT(model="nova-3", language="multi", profanity_filter="true", enable_diarization=True),
+        # stt=deepgram.STT(model="nova-3", language="multi", profanity_filter="true", enable_diarization=True),
+        stt=soniox.STT(params=options),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
         llm=inference.LLM(model="openai/gpt-4.1-mini"),
