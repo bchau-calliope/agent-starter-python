@@ -45,7 +45,7 @@ class Assistant(Agent):
                         continue
 
                     processed_content = content.replace("<think>", "").replace("</think>", "Okay, I'm ready to respond.")
-                    print(f"Original: {content}, Processed: {processed_content}")
+                    # print(f"Original: {content}, Processed: {processed_content}")
 
                     if processed_content != content:
                         if hasattr(chunk, 'delta') and hasattr(chunk.delta, 'content'):
@@ -115,7 +115,7 @@ async def my_agent(ctx: JobContext):
         ),
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
         # See more at https://docs.livekit.io/agents/build/turns
-        turn_detection=MultilingualModel(),
+        turn_detection=MultilingualModel(unlikely_threshold=1),
         vad=ctx.proc.userdata["vad"],
         # allow the LLM to generate a response while waiting for the end of turn
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
